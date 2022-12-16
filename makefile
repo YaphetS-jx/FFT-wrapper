@@ -1,12 +1,12 @@
-all: fft
+all: test
 
 CC = icc
 
-CFLAGS = -g -DMKL_ILP64 -mkl=sequential 
+CFLAGS = -g -DMKL_ILP64 -mkl=sequential -std=gnu99 -O3 -fopenmp
 
-OBJSC = main.o fft.o
+OBJSC = main.o Lap_Kron.o fft.o Lap_Matrix.o Lap.o
 
-fft: $(OBJSC)
+test: $(OBJSC)
 	${CC} ${CFLAGS} ${LIBS} -o $@ $^ 
 
 %.o: %.c %.h
@@ -14,4 +14,4 @@ fft: $(OBJSC)
 
 .PHONY: clean
 clean:
-	rm -f ./*.o *~ core core*
+	rm -f ./*.o *~ core core* test
