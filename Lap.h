@@ -145,4 +145,10 @@ void restrict_to_subgrid(
     const int x_i_spos,   const int y_i_spos,
     const int z_i_spos
 );
+
+
+void Lap_SPARC(int FDn, int Nx, int Ny, int Nz, 
+    double *FDweights_D2_x, double *FDweights_D2_y, double *FDweights_D2_z,
+    const double *X, double *LapX);
+    
 #endif 

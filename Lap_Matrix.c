@@ -4,7 +4,11 @@
 #include <time.h>
 #include <assert.h>
 #include <string.h>
+#include <sys/time.h>    // for gettimeofday()
+
+#define MKL_Complex16 double _Complex
 #include "mkl.h"
+
 
 #include "Lap_Matrix.h"
 
@@ -77,26 +81,16 @@ void eigval_Lap_3D(int Nx, double *lambda_x, int Ny, double *lambda_y, int Nz, d
 }
 
 
-void Lap_1D_D_EigenDecomp(int N, int FDn, 
-    double mesh, double *FDweights_D2, double *Lap_1D_D, double *V, double *lambda)
+void Lap_1D_D_EigenDecomp(int N, int FDn, double *FDweights_D2, double *V, double *lambda)
 {
-    calculate_FDweights_D2(FDn, mesh, FDweights_D2);
-
-    if (Lap_1D_D == NULL) Lap_1D_D = V;
+    double *Lap_1D_D = V;
+    memset(Lap_1D_D, 0, N*N*sizeof(double));
     Lap_1D_Dirichlet(FDn, FDweights_D2, N, Lap_1D_D);
-
-    // print_matrix(N, N, Lap_1D_D, "Lap_1D_D");
-
-    if (Lap_1D_D != NULL) 
-        memcpy(V, Lap_1D_D, sizeof(double)*N*N);
 
     int info = LAPACKE_dsyev(LAPACK_COL_MAJOR, 
         'V', 'U', N, V, N, lambda);
 
     if (info != 0) printf("wrong eigen!");
-    
-    // print_matrix(N, N, V, "eigenVector");
-    // print_matrix(1, N, lambda, "eigenvalue");
 }
 
 
@@ -112,6 +106,66 @@ void Lap_1D_Dirichlet(int FDn, double *FDweights_D2, int N, double *Lap_1D_D)
     }
 
 #undef Lap_1D_D
+}
+
+void Lap_1D_P_EigenDecomp(int N, int FDn, double *FDweights_D2, double *V, double *lambda)
+{
+    double *Lap_1D_P = V;
+    memset(Lap_1D_P, 0, N*N*sizeof(double));
+    Lap_1D_Periodic(FDn, FDweights_D2, N, Lap_1D_P);
+
+    int info = LAPACKE_dsyev(LAPACK_COL_MAJOR, 
+        'V', 'U', N, V, N, lambda);
+    assert(info == 0);
+}
+
+
+void Lap_1D_Periodic(int FDn, double *FDweights_D2, int N, double *Lap_1D_P)
+{
+#define  Lap_1D_P(i,j) Lap_1D_P[(j)*N + (i)]
+
+    for (int i = 0; i < N; i++) {
+        for (int j = i-FDn; j <= i+FDn; j++) {
+            int shift = abs(j - i);
+            int j_ = (j + N) % N;
+            Lap_1D_P(i,j_) = FDweights_D2[shift];
+        }
+    }
+
+#undef Lap_1D_P
+}
+
+void Lap_1D_P_EigenDecomp_complex(int N, int FDn, double *FDweights_D2, double _Complex *V, double *lambda, double _Complex phase_fac)
+{
+    double _Complex *Lap_1D_P = V;
+    memset(Lap_1D_P, 0, N*N*sizeof(double _Complex));
+    Lap_1D_Periodic_complex(FDn, FDweights_D2, N, Lap_1D_P, phase_fac);
+
+    int info = LAPACKE_zheev(LAPACK_COL_MAJOR, 
+        'V', 'U', N, V, N, lambda);
+    assert(info == 0);
+}
+
+
+void Lap_1D_Periodic_complex(int FDn, double *FDweights_D2, int N, double _Complex *Lap_1D_P, double _Complex phase_fac)
+{
+#define  Lap_1D_P(i,j) Lap_1D_P[(j)*N + (i)]
+
+    for (int i = 0; i < N; i++) {
+        for (int j = i-FDn; j <= i+FDn; j++) {
+            int shift = abs(j - i);
+            int j_ = (j + N) % N;
+            if (j < 0) {
+                Lap_1D_P(i,j_) = FDweights_D2[shift] * conj(phase_fac);
+            } else if (j >= N) {
+                Lap_1D_P(i,j_) = FDweights_D2[shift] * phase_fac;
+            } else {
+                Lap_1D_P(i,j_) = FDweights_D2[shift];
+            }
+        }
+    }
+
+#undef Lap_1D_P
 }
 
 
@@ -225,4 +279,58 @@ void print_matrix(int nrow, int ncol, double *Matrix, char *Name)
     }
 
 #undef Matrix
+}
+
+
+/// @brief Y = Lap * X
+/// @param FDn              half finite difference order
+/// @param FDweights_D2     finite difference weights for D2 Laplacian 
+/// @param N                length of vector 
+/// @param X                input X
+/// @param ldaX             leading dimension of X
+/// @param Y                output Y
+/// @param ldaY             leading dimension of Y
+
+void LapX_1D_Dirichlet(int FDn, double *FDweights_D2, int N, 
+    double *X, int ldaX, double *Y, int ldaY)
+{
+    // #1 implementation 
+    // for (int i = 0; i < N; i++) {
+    //     double *Yi = Y + i*ldaY;        
+    //     for (int j = max(0, i-FDn); j <= min(N-1,i+FDn); j++) {
+    //         int shift = j - i;
+    //         int abs_shift = abs(shift);
+    //         double Xj = *(X + j*ldaX);
+    //         *Yi += FDweights_D2[abs_shift] * Xj;
+    //     }
+    // }
+
+    // #2 implementation 
+    double coef0 = FDweights_D2[0];
+    int N_out = N + FDn;
+    int N_ex = N + 2*FDn;
+    double *X_ex = (double *) malloc(sizeof(double) * N_ex);
+
+    // #pragma omp simd
+    for (int i = 0; i < FDn; i++) 
+        X_ex[i] = X_ex[i+N] = 0;
+    
+    double *Xi = X;
+    for (int i = FDn; i < N_out; i++) {
+        X_ex[i] = *Xi;
+        Xi += ldaX;
+    }
+
+    double *Yi = Y;
+    double *X_exi = X_ex + FDn;
+    #pragma omp simd
+    for (int i = 0; i < N; i++) {
+        *Yi += coef0 * (*X_exi);
+        for (int r = 1; r <= FDn; r++) {
+            *Yi += FDweights_D2[r] * (*(X_exi + r) + *(X_exi - r));
+        }
+        Yi += ldaY;
+        X_exi += 1;
+    }
+    free(X_ex);
 }

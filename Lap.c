@@ -201,6 +201,79 @@ void stencil_3axis_thread_v2(
 
 
 
+void Lap_SPARC(int FDn, int Nx, int Ny, int Nz, 
+    double *FDweights_D2_x, double *FDweights_D2_y, double *FDweights_D2_z,
+    const double *X, double *LapX)
+{
+#define X(i,j,k) X[(i)+(j)*Nx+(k)*NxNy]
+#define X_ex(i,j,k) X_ex[(i)+(j)*Nx_ex+(k)*NxNy_ex]
+
+    double *Lap_weights = (double *)malloc(3*(FDn+1)*sizeof(double)); 
+    double *Lap_stencil = Lap_weights;
+    for (int p = 0; p < FDn + 1; p++)
+    {
+        (*Lap_stencil++) = FDweights_D2_x[p];
+        (*Lap_stencil++) = FDweights_D2_y[p];
+        (*Lap_stencil++) = FDweights_D2_z[p];
+    }
+
+    double coef_0 = Lap_weights[0] + Lap_weights[1] + Lap_weights[2];
+    int NxNy = Nx * Ny;
+    int Nx_ex = Nx + 2*FDn;
+    int Ny_ex = Ny + 2*FDn;
+    int Nz_ex = Nz + 2*FDn;
+    int NxNy_ex = Nx_ex * Ny_ex;
+    int Nd_ex = NxNy_ex * Nz_ex;
+
+    double *X_ex = (double *) malloc(sizeof(double)* Nd_ex);    
+
+    // copy X into X_ex
+    for (int k = 0; k < Nz; k++) {
+        int k_ = k + FDn;
+        for (int j = 0; j < Ny; j++) {
+            int j_ = j + FDn;
+            for (int i = 0; i < Nx; i++) {
+                int i_ = i + FDn;
+                X_ex(i_,j_,k_) = X(i,j,k);
+            }
+        }
+    }
+
+    // 6 edge nodes set 0
+    int Nx_out = Nx + FDn;
+    int Ny_out = Ny + FDn;
+    int Nz_out = Nz + FDn;
+    int istart_in[6] = {0,       Nx_out,  FDn,     FDn,     FDn,     FDn   }; 
+    int   iend_in[6] = {FDn,     Nx_ex,   Nx_out,  Nx_out,  Nx_out,  Nx_out};
+    int jstart_in[6] = {FDn,     FDn,     0,       Ny_out,  FDn,     FDn   };
+    int   jend_in[6] = {Ny_out,  Ny_out,  FDn,     Ny_ex,   Ny_out,  Ny_out};
+    int kstart_in[6] = {FDn,     FDn,     FDn,     FDn,     0,       Nz_out}; 
+    int   kend_in[6] = {Nz_out,  Nz_out,  Nz_out,  Nz_out,  FDn,     Nz_ex };
+
+    for (int nbr_i = 0; nbr_i < 6; nbr_i++) {
+        const int kp_s = kstart_in[nbr_i];
+        const int kp_e = kend_in  [nbr_i];
+        const int jp_s = jstart_in[nbr_i];
+        const int jp_e = jend_in  [nbr_i];
+        const int ip_s = istart_in[nbr_i];
+        const int ip_e = iend_in  [nbr_i];
+        for (int kp = kp_s; kp < kp_e; kp++) {
+            for (int jp = jp_s; jp < jp_e; jp++) {
+                for (int ip = ip_s; ip < ip_e; ip++) {
+                    X_ex(ip,jp,kp) = 0.0;
+                }
+            }
+        }
+    }    
+
+    stencil_3axis_thread_v2(X_ex, FDn, Nx, Nx_ex, 
+                    NxNy, NxNy_ex, 0, Nx,  0, Ny, 0, Nz, 
+                    FDn, FDn, FDn, Lap_weights, coef_0, 0, X, LapX);
+    
+    free(Lap_weights);
+    free(X_ex);
+}
+
 /**
  * @brief Restrict any function defined on a FD grid to a sub-grid by extracting
  *        the values that fall in the sub-grid.
