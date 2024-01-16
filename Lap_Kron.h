@@ -21,4 +21,16 @@ void Lap_kron_original(int FDn, int Nx, int Ny, int Nz,
     double *FDweights_D2_x, double *FDweights_D2_y, double *FDweights_D2_z,
     double *X, double *Lapx);
 
+
+void Lap_Kron_multicol(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz, 
+                 double *vec, int ncol, double *diag, double *out);
+
+void f1Tof2(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size);
+
+void f2Tof4(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size);
+
+void f4Tof1(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size);
 #endif

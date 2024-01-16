@@ -5,9 +5,11 @@
 #include "mkl.h"
 #include <math.h>
 #include <sys/time.h>    // for gettimeofday()
+#include <string.h>
 
 #include "Lap_Kron.h"
 #include "Lap_Matrix.h"
+#include "tools.h"
 
 
 void Lap_Kron(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz, 
@@ -21,11 +23,6 @@ void Lap_Kron(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz,
     double *PTVyt = vecTVy;
     double *VxPTVyt = P;
 
-    // double t_s = 0, t_l= 0, t_d = 0;
-    // struct timeval start, end;
-
-    // P = Lambda .* (Vz' x Vy' x Vx') * vec
-    // gettimeofday( &start, NULL );
     for (int k = 0; k < Nz; k++) {
         cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, Nx, Ny, Ny, 
                     1.0, vec + k*NxNy, Nx, Vy, Ny, 0.0, vecTVy, Nx);
@@ -33,25 +30,15 @@ void Lap_Kron(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz,
         cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, Nx, Ny, Nx, 
                     1.0, Vx, Nx, vecTVy, Nx, 0.0, VxtvecTVy + k*NxNy, Nx);
     }
-    // gettimeofday( &end, NULL );
-    // t_s += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    // gettimeofday( &start, NULL );
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, NxNy, Nz, Nz, 
                     1.0, VxtvecTVy, NxNy, Vz, Nz, 0.0, P, NxNy);
-    // gettimeofday( &end, NULL );
-    // t_l += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    // gettimeofday( &start, NULL );
     for (int i = 0; i < Nd; i++) {
         P[i] *= diag[i];
     }
-    // gettimeofday( &end, NULL );
-    // t_d += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
-
 
     // out = (Vz x Vy x Vx) * P
-    // gettimeofday( &start, NULL );
     for (int k = 0; k < Nz; k++) {
         cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, Nx, Ny, Ny, 
                     1.0, P + k*NxNy, Nx, Vy, Ny, 0.0, PTVyt, Nx);
@@ -59,18 +46,9 @@ void Lap_Kron(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz,
         cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, Nx, Ny, Nx, 
                     1.0, Vx, Nx, PTVyt, Nx, 0.0, VxPTVyt + k*NxNy, Nx);
     }
-    // gettimeofday( &end, NULL );
-    // t_s += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
-
-    // gettimeofday( &start, NULL );
+    
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, NxNy, Nz, Nz, 
                     1.0, VxPTVyt, NxNy, Vz, Nz, 0.0, out, NxNy);
-    // gettimeofday( &end, NULL );
-    // t_l += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
-
-    // double t_tot = t_l + t_s + t_d;
-    // printf("MM_small takes %.1e ms, MM_large takes %.1e ms, diag takes %.1e ms, percentage %.1f %%, %.1f %%, %.1f %%\n", 
-        // t_s, t_l, t_d, t_s/t_tot*100, t_l/t_tot*100, t_d/t_tot*100);
 
     free(vecTVy);
     free(P);
@@ -87,7 +65,7 @@ void Lap_Kron_complex(int Nx, int Ny, int Nz, double _Complex *Vx, double _Compl
     double _Complex *P = (double _Complex*) malloc(sizeof(double _Complex) * Nd);
     double _Complex *PTVyt = vecTVy;
     double _Complex *VxPTVyt = P;
-    double _Complex aplha = 1, beta = 1;
+    double _Complex aplha = 1, beta = 0;
 
     // P = Lambda .* (VzH x VyH x VxH) * vec
     for (int k = 0; k < Nz; k++) {
@@ -216,3 +194,174 @@ void Lap_kron_original(int FDn, int Nx, int Ny, int Nz,
         Yi += 1;
     }
 }
+
+
+void Lap_Kron_multicol(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz, 
+                 double *vec, int ncol, double *diag, double *out)
+{
+    int NxNy = Nx * Ny;
+    int Nd = Nx * Ny * Nz;
+    int len = Nd * ncol;
+    double *temp = (double *) malloc(sizeof(double) * len);
+    
+    double *VxTvec, *VxTvecVy, *P, *DP, *VxDP, *VxDpVyT, *res;
+    double *FormVxTvec, *FormVxTvecVy, *FormDP, *FormVxDP, *FormVxDpVyT;
+    
+    VxTvec = VxTvecVy = P = FormDP = FormVxDP = FormVxDpVyT = out;
+    FormVxTvec = FormVxTvecVy = DP = VxDP = VxDpVyT = res = temp;
+
+double t_m = 0, t_c = 0;
+struct timeval start, end;
+
+    // P = Lambda .* (Vz' x Vy' x Vx') * vec
+gettimeofday( &start, NULL );
+    cblas_dgemm(CblasColMajor, CblasTrans, CblasNoTrans, Nx, Ny*Nz*ncol, Nx, 
+                1.0, Vx, Nx, vec, Nx, 0.0, VxTvec, Nx);
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    f1Tof2(Nx, Ny, Nz, ncol, VxTvec, FormVxTvec, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, Nx*Nz*ncol, Ny, Ny, 
+                1.0, FormVxTvec, Nx*Nz*ncol, Vy, Ny, 0.0, VxTvecVy, Nx*Nz*ncol);
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    f2Tof4(Nx, Ny, Nz, ncol, VxTvecVy, FormVxTvecVy, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, NxNy*ncol, Nz, Nz, 
+                1.0, FormVxTvecVy, NxNy*ncol, Vz, Nz, 0.0, P, NxNy*ncol);
+    
+    // apply diagonal term
+    double *P_ = P, *DP_ = DP;
+    for (int nz = 0; nz < Nz; nz++) {
+        double *diag_ = diag + nz*Nx*Ny;
+        for (int n = 0; n < ncol; n++) {
+            for (int i = 0; i < Nx*Ny; i++) {
+                DP_[i] = P_[i] * diag_[i];
+            }
+            P_ += Nx*Ny;
+            DP_ += Nx*Ny;
+        }
+    }
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    // out = (Vz x Vy x Vx) * P
+    f4Tof1(Nx, Ny, Nz, ncol, DP, FormDP, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, Nx, Ny*Nz*ncol, Nx, 
+                1.0, Vx, Nx, FormDP, Nx, 0.0, VxDP, Nx);
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    f1Tof2(Nx, Ny, Nz, ncol, VxDP, FormVxDP, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );    
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, Nx*Nz*ncol, Ny, Ny, 
+                1.0, FormVxDP, Nx*Nz*ncol, Vy, Ny, 0.0, VxDpVyT, Nx*Nz*ncol);
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    f2Tof4(Nx, Ny, Nz, ncol, VxDpVyT, FormVxDpVyT, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, NxNy*ncol, Nz, Nz, 
+                1.0, FormVxDpVyT, NxNy*ncol, Vz, Nz, 0.0, res, NxNy*ncol);
+gettimeofday( &end, NULL );
+t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+gettimeofday( &start, NULL );
+    f4Tof1(Nx, Ny, Nz, ncol, res, out, sizeof(double));
+gettimeofday( &end, NULL );
+t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+
+    free(temp);
+
+printf("in multicol, data movement takes %.3f ms, blas3 takes %.3f ms, t_m/t_c = %.3f %%\n", t_m, t_c, t_m/t_c*100);
+}
+
+void f1Tof2(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size) 
+{
+    int NxNy = Nx * Ny;
+    int lds = Nx;
+    int ldd = Nz * ncol * Nx;
+
+    void *src_ = src, *dest_ = dest;
+    for (int d1 = 0; d1 < Nz*ncol; d1++) {        
+        copy_mat_blk(unit_size, src_, lds, Nx, Ny, dest_, ldd);
+        src_ += NxNy * unit_size;
+        dest_ += Nx * unit_size;
+    }
+}
+
+
+void f2Tof4(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size) 
+{
+    int NxNy = Nx * Ny;
+    int lds = Nz * ncol * Nx;
+    int ldd = Nx;
+
+    void *src_ = src;
+    for (int d2 = 0; d2 < ncol; d2++) {
+        for (int d1 = 0; d1 < Nz; d1++) {
+            
+            // at (d2,d1) cell
+            void *dest_ = dest + unit_size * (d2*NxNy + d1*NxNy*ncol);
+            copy_mat_blk(unit_size, src_, lds, Nx, Ny, dest_, ldd);
+            src_ += Nx * unit_size;
+        }
+    }
+}
+
+void f4Tof1(const int Nx, const int Ny, const int Nz, int ncol, 
+            void *src, void *dest, const size_t unit_size) 
+{
+    int NxNy = Nx * Ny;
+    int Nd = NxNy * Nz;
+    int lds = Nx;
+    int ldd = Nx;
+
+    void *src_ = src;
+    for (int d2 = 0; d2 < Nz; d2++) {
+        for (int d1 = 0; d1 < ncol; d1++) {
+            
+            void *dest_ = dest + unit_size * (d1*Nd + d2*NxNy);
+            copy_mat_blk(unit_size, src_, lds, Nx, Ny, dest_, ldd);
+            src_ += NxNy * unit_size;
+        }
+    }
+}
+

@@ -7,6 +7,61 @@
 
 #include "fft.h"
 
+
+
+void fft_solve(int Nx, int Ny, int Nz, double *rhs, double *pois_FFT_const, double *sol)
+{
+    MKL_LONG dim_sizes[3] = {Nz, Ny, Nx};
+    MKL_LONG strides_out[4] = {0, Ny*(Nx/2+1), Nx/2+1, 1}; 
+    int Nd_half = (Nx/2+1)*Ny*Nz;
+
+    double _Complex *rhs_G = (double _Complex *) malloc(sizeof(double _Complex) * Nd_half);    
+
+    MKL_MDFFT_real(rhs, dim_sizes, strides_out, rhs_G);
+    
+    for (int i = 0; i < Nd_half; i++) {
+        rhs_G[i] = creal(rhs_G[i]) * pois_FFT_const[i] 
+                    + (cimag(rhs_G[i]) * pois_FFT_const[i]) * I;
+    }
+
+    MKL_MDiFFT_real(rhs_G, dim_sizes, strides_out, sol);
+
+    free(rhs_G);
+}
+
+
+
+void fft_solve_complex(int Nx, int Ny, int Nz, double _Complex *rhs, double *pois_FFT_const, double _Complex *sol, double _Complex *phase_pos, double _Complex *phase_neg)
+{
+    MKL_LONG dim_sizes[3] = {Nz, Ny, Nx};
+    MKL_LONG strides_out[4] = {0, Ny*Nx, Nx, 1}; 
+    int Nd = Nx*Ny*Nz;
+
+    double _Complex *rhs_G = (double _Complex *) malloc(sizeof(double _Complex) * Nd);    
+
+    for (int i = 0; i < Nd; i++) {
+        rhs[i] *= phase_neg[i];
+    }
+    MKL_MDFFT(rhs, dim_sizes, strides_out, rhs_G);
+    
+    for (int i = 0; i < Nd; i++) {
+        rhs_G[i] = creal(rhs_G[i]) * pois_FFT_const[i] 
+                    + (cimag(rhs_G[i]) * pois_FFT_const[i]) * I;
+    }
+
+    MKL_MDiFFT(rhs_G, dim_sizes, strides_out, sol);
+
+    for (int i = 0; i < Nd; i++) {
+        rhs[i] *= phase_pos[i];
+    }
+
+    free(rhs_G);
+}
+
+
+
+
+
 /**
  * @brief   MKL multi-dimension FFT interface, real to complex, following conjugate even distribution. 
  */
@@ -100,47 +155,3 @@ void MKL_MDiFFT(double _Complex *c2c_3dinput, MKL_LONG *dim_sizes, MKL_LONG *str
         c2c_3doutput[i] /= N;
     }
 }
-
-
-// void FFTW_MDFFT(int *dim_sizes, double _Complex *c2c_3dinput, double _Complex *c2c_3doutput) {
-//     fftw_complex *in, *out;
-//     fftw_plan p;
-//     int N = dim_sizes[0] * dim_sizes[1] * dim_sizes[2];
-//     p = fftw_plan_dft(3, dim_sizes, c2c_3dinput, c2c_3doutput, FFTW_FORWARD, FFTW_ESTIMATE);
-//     fftw_execute(p);
-//     fftw_destroy_plan(p);
-// }
-
-// void FFTW_MDiFFT(int *dim_sizes, double _Complex *c2c_3dinput, double _Complex *c2c_3doutput) {
-//     fftw_complex *in, *out;
-//     fftw_plan p;
-//     int N = dim_sizes[0] * dim_sizes[1] * dim_sizes[2], i;
-//     p = fftw_plan_dft(3, dim_sizes, c2c_3dinput, c2c_3doutput, FFTW_BACKWARD, FFTW_ESTIMATE);
-//     fftw_execute(p);
-//     fftw_destroy_plan(p);
-//     for (i = 0; i < N; i++)
-//         c2c_3doutput[i] /= N;
-// }
-
-
-// void FFTW_MDFFT_real(int *dim_sizes, double *r2c_3dinput, double _Complex *r2c_3doutput) {
-//     fftw_complex *in, *out;
-//     fftw_plan p;
-//     int N = dim_sizes[0] * dim_sizes[1] * dim_sizes[2];
-//     p = fftw_plan_dft_r2c(3, dim_sizes, r2c_3dinput, r2c_3doutput, FFTW_ESTIMATE);
-//     fftw_execute(p);
-//     fftw_destroy_plan(p);
-// }
-
-// void FFTW_MDiFFT_real(int *dim_sizes, double _Complex *c2r_3dinput, double *c2r_3doutput) {
-//     fftw_complex *in, *out;
-//     fftw_plan p;
-//     int N = dim_sizes[0] * dim_sizes[1] * dim_sizes[2], i;
-//     p = fftw_plan_dft_c2r(3, dim_sizes, c2r_3dinput, c2r_3doutput, FFTW_ESTIMATE);
-//     fftw_execute(p);
-//     fftw_destroy_plan(p);
-//     for (i = 0; i < N; i++)
-//         c2r_3doutput[i] /= N;
-// }
-
-
