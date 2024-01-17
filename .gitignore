@@ -1,3 +1,4 @@
 *.o
-result
+result*
 test.sbatch
+test

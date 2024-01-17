@@ -46,8 +46,18 @@ int main(int argc, char *argv[]){
 
     srand(5);    
 
-    compare_FFT_CPU_GPU(Nx, Ny, Nz, reps);
-    return 0;
+    printf("================\n");
+    verify_FFT_CPU_GPU(Nx, Ny, Nz);
+    printf("================\n");
+    verify_FFT_CPU_GPU_complex(Nx, Ny, Nz);
+    printf("================\n");
+    FFT_iFFT_CPU(Nx, Ny, Nz, reps);
+    FFT_iFFT_GPU(Nx, Ny, Nz, reps);
+    printf("================\n");
+    FFT_iFFT_complex_CPU(Nx, Ny, Nz, reps);
+    FFT_iFFT_complex_GPU(Nx, Ny, Nz, reps);
+
+        
     /******************************************************/
     /*********          Lap_1D decomposition        *******/
     /******************************************************/
@@ -76,34 +86,31 @@ int main(int argc, char *argv[]){
 
 ////////////////////////////////////////////
     cudaError_t cuE; cublasStatus_t cubSt;
-    double *d_Vx, *d_Vy, *d_Vz, *d_eig;
+    double *d_Vx, *d_Vy, *d_Vz, *d_eig;    
     cuE = cudaMalloc((void **) &d_Vx, sizeof(double) * Nx * Nx); assert(cudaSuccess == cuE);
 	cuE = cudaMalloc((void **) &d_Vy, sizeof(double) * Ny * Ny); assert(cudaSuccess == cuE);
 	cuE = cudaMalloc((void **) &d_Vz, sizeof(double) * Nz * Nz); assert(cudaSuccess == cuE);
     cuE = cudaMalloc((void **) &d_eig, sizeof(double) * Nx * Ny * Nz); assert(cudaSuccess == cuE);
+    cuDoubleComplex *d_Vx_kpt, *d_Vy_kpt, *d_Vz_kpt;
+    cuE = cudaMalloc((void **) &d_Vx_kpt, sizeof(cuDoubleComplex) * Nx * Nx); assert(cudaSuccess == cuE);
+	cuE = cudaMalloc((void **) &d_Vy_kpt, sizeof(cuDoubleComplex) * Ny * Ny); assert(cudaSuccess == cuE);
+	cuE = cudaMalloc((void **) &d_Vz_kpt, sizeof(cuDoubleComplex) * Nz * Nz); assert(cudaSuccess == cuE);
+
 ///////////////////////////////////////////
 
     calculate_FDweights_D2(FDn, dx, FDweights_D2_x);
     calculate_FDweights_D2(FDn, dy, FDweights_D2_y);
     calculate_FDweights_D2(FDn, dz, FDweights_D2_z);
 
-    // Dirichlet
-    printf("Dirichlet\n");
-    Lap_1D_D_EigenDecomp(Nx, FDn, FDweights_D2_x, Vx, lambda_x);
-    Lap_1D_D_EigenDecomp(Ny, FDn, FDweights_D2_y, Vy, lambda_y);
-    Lap_1D_D_EigenDecomp(Nz, FDn, FDweights_D2_z, Vz, lambda_z);
-    eigval_Lap_3D(Nx, lambda_x, Ny, lambda_y, Nz, lambda_z, eig);
-
-////////////////////////////////////////////
-    cubSt = cublasSetMatrix(Nx, Nx, sizeof(double), Vx, Nx, d_Vx, Nx); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    cubSt = cublasSetMatrix(Ny, Ny, sizeof(double), Vy, Ny, d_Vy, Ny); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    cubSt = cublasSetMatrix(Nz, Nz, sizeof(double), Vz, Nz, d_Vz, Nz); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-////////////////////////////////////////////    
-
-    Kron_compare_single_col_GPU(Nx, Ny, Nz, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig, reps);
+//     // Dirichlet
+//     printf("Dirichlet\n");
+//     Lap_1D_D_EigenDecomp(Nx, FDn, FDweights_D2_x, Vx, lambda_x);
+//     Lap_1D_D_EigenDecomp(Ny, FDn, FDweights_D2_y, Vy, lambda_y);
+//     Lap_1D_D_EigenDecomp(Nz, FDn, FDweights_D2_z, Vz, lambda_z);
+//     eigval_Lap_3D(Nx, lambda_x, Ny, lambda_y, Nz, lambda_z, eig);
 
     // Periodic real
+    printf("================\n");
     printf("Periodic real\n");
     Lap_1D_P_EigenDecomp(Nx, FDn, FDweights_D2_x, Vx, lambda_x);
     Lap_1D_P_EigenDecomp(Ny, FDn, FDweights_D2_y, Vy, lambda_y);
@@ -117,7 +124,14 @@ int main(int argc, char *argv[]){
     cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 ////////////////////////////////////////////    
 
+    printf("================\n");
+    verify_single_col(Nx, Ny, Nz, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig);
+    printf("================\n");
+    kron_single_col_CPU(Nx, Ny, Nz, Vx, Vy, Vz, eig, reps);    
+    kron_single_col_GPU(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_eig, reps);
+
     // Periodic complex
+    printf("================\n");
     printf("Periodic complex\n");
     Lap_1D_P_EigenDecomp_complex(Nx, FDn, FDweights_D2_x, Vx_kpt, lambda_x, phase_fac_x);
     Lap_1D_P_EigenDecomp_complex(Ny, FDn, FDweights_D2_y, Vy_kpt, lambda_y, phase_fac_y);
@@ -125,11 +139,16 @@ int main(int argc, char *argv[]){
     eigval_Lap_3D(Nx, lambda_x, Ny, lambda_y, Nz, lambda_z, eig);
     
 ////////////////////////////////////////////
-    cubSt = cublasSetMatrix(Nx, Nx, sizeof(double), Vx, Nx, d_Vx, Nx); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    cubSt = cublasSetMatrix(Ny, Ny, sizeof(double), Vy, Ny, d_Vy, Ny); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    cubSt = cublasSetMatrix(Nz, Nz, sizeof(double), Vz, Nz, d_Vz, Nz); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    cubSt = cublasSetMatrix(Nx, Nx, sizeof(cuDoubleComplex), Vx_kpt, Nx, d_Vx_kpt, Nx); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    cubSt = cublasSetMatrix(Ny, Ny, sizeof(cuDoubleComplex), Vy_kpt, Ny, d_Vy_kpt, Ny); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    cubSt = cublasSetMatrix(Nz, Nz, sizeof(cuDoubleComplex), Vz_kpt, Nz, d_Vz_kpt, Nz); assert(CUBLAS_STATUS_SUCCESS == cubSt);
     cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 ////////////////////////////////////////////    
+
+    verify_single_col_complex(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);
+    printf("================\n");
+    kron_single_col_complex_CPU(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, reps);
+    kron_single_col_complex_GPU(Nx, Ny, Nz, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig, reps);
 
     free(FDweights_D2_x);
     free(FDweights_D2_y);

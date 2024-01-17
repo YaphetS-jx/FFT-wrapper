@@ -1,8 +1,8 @@
-for i in {12..100..1}
+for i in {20..200..1}
 do 
     echo $i
 
-    ./test $i $i $i 1 10
+    ./test $i $i $i 10
     
 done
 

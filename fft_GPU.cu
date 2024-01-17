@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <assert.h>
 
 #include <cuda_runtime.h>
 #include <cuComplex.h>
@@ -8,6 +9,7 @@
 #include <cufft.h>
 
 #include "fft_GPU.h"
+#include "tools.h"
 
 
 #ifdef __cplusplus
@@ -15,40 +17,33 @@ extern "C" {
 #endif
 
 
-__global__ void scale_vector(double* a, double scale, int n) 
+
+void CUDA_fft_solve(int Nx, int Ny, int Nz, double *d_rhs, double *d_pois_FFT_const, double *d_sol)
 {
-    int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i < n) {
-        a[i] *= scale;
-    }
+    int Nd_half = (Nx/2+1)*Ny*Nz;
+    int dim_sizes[3] = {Nz, Ny, Nx};
+
+    cudaError_t cuE;
+
+    cuDoubleComplex *d_rhs_bar;
+    cuE = cudaMalloc((void **) &d_rhs_bar, sizeof(cuDoubleComplex) * Nd_half); assert(cudaSuccess == cuE);
+
+    CUDA_MDFFT_real(d_rhs, dim_sizes, d_rhs_bar);  
+
+    int numThreadsPerBlock = 256;
+	int numBlocks = (Nd_half + numThreadsPerBlock - 1) / numThreadsPerBlock;
+
+	Hammond_CR<<<numBlocks, numThreadsPerBlock>>>(d_rhs_bar, d_pois_FFT_const, d_rhs_bar, Nd_half);
+
+    CUDA_MDiFFT_real(d_rhs_bar, dim_sizes, d_sol);
+
+    cuE = cudaFree(d_rhs_bar); assert(cudaSuccess == cuE);
 }
 
-__global__ void GPU_print_kernel(double *d_vec, int n) 
-{
-    for (int i = 0; i < n; i++) {
-        printf("%20.16f\n", d_vec[i]);
-    }
-    printf("\n");
-}
 
-__global__ void GPU_print_complex_kernel(cuDoubleComplex *d_vec, int n) 
-{
-    for (int i = 0; i < n; i++) {
-        printf("%20.16f + %20.16f\n", cuCreal(d_vec[i]), cuCimag(d_vec[i]));
-    }
-    printf("\n");
-}
-
-void GPU_print(double *d_vec, int n)
-{
-    GPU_print_kernel<<<1,1>>>(d_vec, n);
-}
-
-void GPU_print_complex(cuDoubleComplex *d_vec, int n)
-{
-    GPU_print_complex_kernel<<<1,1>>>(d_vec, n);
-}
-
+/**
+ * @brief   CUDA multi-dimension FFT interface, real to complex, following conjugate even distribution. 
+ */
 void CUDA_MDFFT_real(cufftDoubleReal *d_r2c_3dinput, int *dim_sizes, cufftDoubleComplex *d_r2c_3doutput)
 {
     cufftHandle plan_r2c;
@@ -58,18 +53,16 @@ void CUDA_MDFFT_real(cufftDoubleReal *d_r2c_3dinput, int *dim_sizes, cufftDouble
     cufftDestroy(plan_r2c);
 }
 
+/**
+ * @brief   CUDA multi-dimension FFT interface, complex to real, following conjugate even distribution. 
+ *          Warning: d_c2r_3dinput will be changed!
+ */
 void CUDA_MDiFFT_real(cufftDoubleComplex *d_c2r_3dinput, int *dim_sizes, cufftDoubleReal *d_c2r_3doutput)
 {
-    // out-place C2R will change input 
-    int N_half = (dim_sizes[2]/2+1) * dim_sizes[1] * dim_sizes[0];
-    cufftDoubleComplex *d_c2r_3dinput_copy;
-    cudaMalloc((void **) &d_c2r_3dinput_copy, sizeof(cufftDoubleComplex) * N_half);
-    cudaMemcpy(d_c2r_3dinput_copy, d_c2r_3dinput, sizeof(cufftDoubleComplex)*N_half, cudaMemcpyDeviceToDevice);
-
     cufftHandle plan_c2r;
     cufftCreate(&plan_c2r);
     cufftPlan3d(&plan_c2r, dim_sizes[0], dim_sizes[1], dim_sizes[2], CUFFT_Z2D);
-    cufftExecZ2D(plan_c2r, d_c2r_3dinput_copy, d_c2r_3doutput);
+    cufftExecZ2D(plan_c2r, d_c2r_3dinput, d_c2r_3doutput);
     cufftDestroy(plan_c2r);
 
     int N = dim_sizes[2]*dim_sizes[1]*dim_sizes[0];
@@ -77,10 +70,38 @@ void CUDA_MDiFFT_real(cufftDoubleComplex *d_c2r_3dinput, int *dim_sizes, cufftDo
     int numBlocks = (N + numThreadsPerBlock - 1) / numThreadsPerBlock;
     double scale = 1.0/N;
     scale_vector<<<numBlocks,numThreadsPerBlock>>>(d_c2r_3doutput, scale, N);
-
-    cudaFree(d_c2r_3dinput_copy);
 }
 
+
+/**
+ * @brief   CUDA multi-dimension FFT interface, complex to complex
+ */
+void CUDA_MDFFT(cufftDoubleComplex *d_c2c_3dinput, int *dim_sizes, cufftDoubleComplex *d_c2c_3doutput)
+{
+    cufftHandle plan_c2c;
+    cufftCreate(&plan_c2c);
+    cufftPlan3d(&plan_c2c, dim_sizes[0], dim_sizes[1], dim_sizes[2], CUFFT_Z2Z);
+    cufftExecZ2Z(plan_c2c, d_c2c_3dinput, d_c2c_3doutput, CUFFT_FORWARD);
+    cufftDestroy(plan_c2c);
+}
+
+/**
+ * @brief   CUDA multi-dimension FFT interface, complex to complex
+ */
+void CUDA_MDiFFT(cufftDoubleComplex *d_c2c_3dinput, int *dim_sizes, cufftDoubleComplex *d_c2c_3doutput)
+{
+    cufftHandle plan_c2c;
+    cufftCreate(&plan_c2c);
+    cufftPlan3d(&plan_c2c, dim_sizes[0], dim_sizes[1], dim_sizes[2], CUFFT_Z2Z);
+    cufftExecZ2Z(plan_c2c, d_c2c_3dinput, d_c2c_3doutput, CUFFT_INVERSE);
+    cufftDestroy(plan_c2c);
+
+    int N = dim_sizes[2]*dim_sizes[1]*dim_sizes[0];
+    int numThreadsPerBlock = 256;
+    int numBlocks = (N + numThreadsPerBlock - 1) / numThreadsPerBlock;
+    double scale = 1.0/N;
+    scale_vector_complex<<<numBlocks,numThreadsPerBlock>>>(d_c2c_3doutput, scale, N);
+}
 
 
 #ifdef __cplusplus
