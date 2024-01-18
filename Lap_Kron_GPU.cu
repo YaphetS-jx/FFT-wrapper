@@ -88,21 +88,21 @@ void CUDA_Lap_Kron_complex(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, cuDoub
     cuE = cudaMalloc((void **) &d_P, sizeof(cuDoubleComplex) * Nd); assert(cudaSuccess == cuE);    
     d_PTVyt = d_vecTVy;    
     d_VxPTVyt = d_P;    
-    cuDoubleComplex aplha = make_cuDoubleComplex(1.0, 0.0), beta = make_cuDoubleComplex(0.0, 0.0);
+    cuDoubleComplex alpha = make_cuDoubleComplex(1.0, 0.0), beta = make_cuDoubleComplex(0.0, 0.0);
 
     // P = Lambda .* (VzH x VyH x VxH) * vec
     for (int k = 0; k < Nz; k++) {    
         cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, Nx, Ny, Ny, 
-                    &aplha, d_vec + k*NxNy, Nx, d_VyH, Ny, &beta, d_vecTVy, Nx);
+                    &alpha, d_vec + k*NxNy, Nx, d_VyH, Ny, &beta, d_vecTVy, Nx);
         assert(CUBLAS_STATUS_SUCCESS == cubSt);
     
         cubSt = cublasZgemm(handle, CUBLAS_OP_C, CUBLAS_OP_N, Nx, Ny, Nx, 
-                    &aplha, d_Vx, Nx, d_vecTVy, Nx, &beta, d_VxtvecTVy + k*NxNy, Nx);
+                    &alpha, d_Vx, Nx, d_vecTVy, Nx, &beta, d_VxtvecTVy + k*NxNy, Nx);
         assert(CUBLAS_STATUS_SUCCESS == cubSt);
     }
 
     cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, NxNy, Nz, Nz, 
-                    &aplha, d_VxtvecTVy, NxNy, d_VzH, Nz, &beta, d_P, NxNy);
+                    &alpha, d_VxtvecTVy, NxNy, d_VzH, Nz, &beta, d_P, NxNy);
     assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     int numThreadsPerBlock = 256;
@@ -113,16 +113,16 @@ void CUDA_Lap_Kron_complex(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, cuDoub
     // out = (Vz x Vy x Vx) * P
     for (int k = 0; k < Nz; k++) {
         cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, Nx, Ny, Ny, 
-                    &aplha, d_P + k*NxNy, Nx, d_Vy, Ny, &beta, d_PTVyt, Nx);
+                    &alpha, d_P + k*NxNy, Nx, d_Vy, Ny, &beta, d_PTVyt, Nx);
         assert(CUBLAS_STATUS_SUCCESS == cubSt);
     
         cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, Nx, Ny, Nx, 
-                    &aplha, d_Vx, Nx, d_PTVyt, Nx, &beta, d_VxPTVyt + k*NxNy, Nx);
+                    &alpha, d_Vx, Nx, d_PTVyt, Nx, &beta, d_VxPTVyt + k*NxNy, Nx);
         assert(CUBLAS_STATUS_SUCCESS == cubSt);
     }
 
     cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, NxNy, Nz, Nz, 
-                    &aplha, d_VxPTVyt, NxNy, d_Vz, Nz, &beta, d_out, NxNy);
+                    &alpha, d_VxPTVyt, NxNy, d_Vz, Nz, &beta, d_out, NxNy);
     assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     cuE = cudaFree(d_vecTVy); assert(cudaSuccess == cuE);
@@ -389,6 +389,73 @@ __global__ void apply_diagonal_kernel(const int Nx, const int Ny, const int Nz, 
     }
 }
 
+
+
+void CUDA_Lap_Kron_multicol_complex(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, cuDoubleComplex *d_Vy, cuDoubleComplex *d_Vz, 
+                 cuDoubleComplex *d_VyH, cuDoubleComplex *d_VzH, cuDoubleComplex *d_vec, int ncol, double *d_diag, cuDoubleComplex *d_out)
+{
+    cublasHandle_t handle;
+    cublasStatus_t cubSt;
+    cudaError_t cuE;
+
+    cubSt = cublasCreate(&handle); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    int NxNy = Nx * Ny;
+    int Nd = Nx * Ny * Nz;
+    int len = Nd * ncol;
+    cuDoubleComplex *d_temp;
+    cuE = cudaMalloc((void **) &d_temp, sizeof(cuDoubleComplex) * len); assert(cudaSuccess == cuE);
+
+    cuDoubleComplex *d_VxTvec, *d_VxTvecVy, *d_P, *d_DP, *d_VxDP, *d_VxDpVyT, *d_res;
+    cuDoubleComplex *d_FormVxTvec, *d_FormVxTvecVy, *d_FormDP, *d_FormVxDP, *d_FormVxDpVyT;
+    
+    d_VxTvec = d_VxTvecVy = d_P = d_FormDP = d_FormVxDP = d_FormVxDpVyT = d_out;
+    d_FormVxTvec = d_FormVxTvecVy = d_DP = d_VxDP = d_VxDpVyT = d_res = d_temp;
+    cuDoubleComplex alpha = make_cuDoubleComplex(1.0, 0.0), beta = make_cuDoubleComplex(0.0, 0.0);
+
+    // P = Lambda .* (Vz' x Vy' x Vx') * vec
+    cubSt = cublasZgemm(handle, CUBLAS_OP_C, CUBLAS_OP_N, Nx, Ny*Nz*ncol, Nx, 
+                &alpha, d_Vx, Nx, d_vec, Nx, &beta, d_VxTvec, Nx);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    
+    f1Tof2_GPU(Nx, Ny, Nz, ncol, d_VxTvec, d_FormVxTvec, sizeof(cuDoubleComplex));
+
+    cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, Nx*Nz*ncol, Ny, Ny, 
+                &alpha, d_FormVxTvec, Nx*Nz*ncol, d_VyH, Ny, &beta, d_VxTvecVy, Nx*Nz*ncol);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    f2Tof4_GPU(Nx, Ny, Nz, ncol, d_VxTvecVy, d_FormVxTvecVy, sizeof(cuDoubleComplex));
+
+    cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, NxNy*ncol, Nz, Nz, 
+                &alpha, d_FormVxTvecVy, NxNy*ncol, d_VzH, Nz, &beta, d_P, NxNy*ncol);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    // // apply diagonal term
+    apply_diagonal_GPU(Nx, Ny, Nz, ncol, d_P, d_diag, d_DP, sizeof(cuDoubleComplex));
+
+    // // out = (Vz x Vy x Vx) * P
+    f4Tof1_GPU(Nx, Ny, Nz, ncol, d_DP, d_FormDP, sizeof(cuDoubleComplex));
+
+    cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, Nx, Ny*Nz*ncol, Nx, 
+                &alpha, d_Vx, Nx, d_FormDP, Nx, &beta, d_VxDP, Nx);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    f1Tof2_GPU(Nx, Ny, Nz, ncol, d_VxDP, d_FormVxDP, sizeof(cuDoubleComplex));
+
+    cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, Nx*Nz*ncol, Ny, Ny, 
+                &alpha, d_FormVxDP, Nx*Nz*ncol, d_Vy, Ny, &beta, d_VxDpVyT, Nx*Nz*ncol);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    f2Tof4_GPU(Nx, Ny, Nz, ncol, d_VxDpVyT, d_FormVxDpVyT, sizeof(cuDoubleComplex));
+
+    cubSt = cublasZgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, NxNy*ncol, Nz, Nz, 
+                &alpha, d_FormVxDpVyT, NxNy*ncol, d_Vz, Nz, &beta, d_res, NxNy*ncol);
+    assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    f4Tof1_GPU(Nx, Ny, Nz, ncol, d_res, d_out, sizeof(cuDoubleComplex));
+
+    cuE = cudaFree(d_temp); assert(cudaSuccess == cuE);
+}
 
 
 #ifdef __cplusplus

@@ -139,9 +139,13 @@ int main(int argc, char *argv[]){
     cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 ////////////////////////////////////////////    
 
-    verify_single_col_complex(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);    
+    verify_single_col_complex(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);
     kron_single_col_complex_CPU(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, reps);
     kron_single_col_complex_GPU(Nx, Ny, Nz, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig, reps);
+
+    verify_multiple_col_complex(Nx, Ny, Nz, ncol, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);
+    kron_multiple_col_complex_CPU(Nx, Ny, Nz, ncol, Vx_kpt, Vy_kpt, Vz_kpt, eig, reps);
+    kron_multiple_col_complex_GPU(Nx, Ny, Nz, ncol, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig, reps);
 
     free(FDweights_D2_x);
     free(FDweights_D2_y);

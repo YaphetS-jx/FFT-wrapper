@@ -33,4 +33,8 @@ void f2Tof4(const int Nx, const int Ny, const int Nz, int ncol,
 
 void f4Tof1(const int Nx, const int Ny, const int Nz, int ncol, 
             void *src, void *dest, const size_t unit_size);
+
+void Lap_Kron_multicol_complex(int Nx, int Ny, int Nz, double _Complex *Vx, double _Complex *Vy, double _Complex *Vz, 
+                 double _Complex *VyH, double _Complex *VzH, double _Complex *vec, int ncol, double *diag, double _Complex *out);
+
 #endif

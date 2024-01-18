@@ -47,6 +47,9 @@ void apply_diagonal_GPU(const int Nx, const int Ny, const int Nz, int ncol,
 __global__ void apply_diagonal_kernel(const int Nx, const int Ny, const int Nz, int ncol, 
             void *d_in, double *d_diag, void *d_out, const size_t unit_size);
 
+void CUDA_Lap_Kron_multicol_complex(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, cuDoubleComplex *d_Vy, cuDoubleComplex *d_Vz, 
+                 cuDoubleComplex *d_VyH, cuDoubleComplex *d_VzH, cuDoubleComplex *d_vec, int ncol, double *d_diag, cuDoubleComplex *d_out);
+
 #ifdef __cplusplus
 }
 #endif
