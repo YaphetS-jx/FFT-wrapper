@@ -40,20 +40,16 @@ int main(int argc, char *argv[]){
         reps = atoi(argv[4]);
         ncol = atoi(argv[5]);
     }
+    printf("================\n");
     printf("Nx,Ny,Nz: %d,%d,%d\n", Nx, Ny, Nz);
-    printf("reps: %d\n", reps);
-    printf("ncol: %d\n", ncol);
+    printf("reps: %d, ncol: %d\n", reps, ncol);
 
     srand(5);    
 
-    printf("================\n");
     verify_FFT_CPU_GPU(Nx, Ny, Nz);
-    printf("================\n");
-    verify_FFT_CPU_GPU_complex(Nx, Ny, Nz);
-    printf("================\n");
+    verify_FFT_CPU_GPU_complex(Nx, Ny, Nz);    
     FFT_iFFT_CPU(Nx, Ny, Nz, reps);
-    FFT_iFFT_GPU(Nx, Ny, Nz, reps);
-    printf("================\n");
+    FFT_iFFT_GPU(Nx, Ny, Nz, reps);    
     FFT_iFFT_complex_CPU(Nx, Ny, Nz, reps);
     FFT_iFFT_complex_GPU(Nx, Ny, Nz, reps);
 
@@ -103,15 +99,12 @@ int main(int argc, char *argv[]){
     calculate_FDweights_D2(FDn, dz, FDweights_D2_z);
 
 //     // Dirichlet
-//     printf("Dirichlet\n");
 //     Lap_1D_D_EigenDecomp(Nx, FDn, FDweights_D2_x, Vx, lambda_x);
 //     Lap_1D_D_EigenDecomp(Ny, FDn, FDweights_D2_y, Vy, lambda_y);
 //     Lap_1D_D_EigenDecomp(Nz, FDn, FDweights_D2_z, Vz, lambda_z);
 //     eigval_Lap_3D(Nx, lambda_x, Ny, lambda_y, Nz, lambda_z, eig);
 
     // Periodic real
-    printf("================\n");
-    printf("Periodic real\n");
     Lap_1D_P_EigenDecomp(Nx, FDn, FDweights_D2_x, Vx, lambda_x);
     Lap_1D_P_EigenDecomp(Ny, FDn, FDweights_D2_y, Vy, lambda_y);
     Lap_1D_P_EigenDecomp(Nz, FDn, FDweights_D2_z, Vz, lambda_z);
@@ -123,16 +116,17 @@ int main(int argc, char *argv[]){
     cubSt = cublasSetMatrix(Nz, Nz, sizeof(double), Vz, Nz, d_Vz, Nz); assert(CUBLAS_STATUS_SUCCESS == cubSt);
     cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 ////////////////////////////////////////////    
-
-    printf("================\n");
-    verify_single_col(Nx, Ny, Nz, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig);
-    printf("================\n");
+    
+    verify_single_col(Nx, Ny, Nz, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig);    
     kron_single_col_CPU(Nx, Ny, Nz, Vx, Vy, Vz, eig, reps);    
     kron_single_col_GPU(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_eig, reps);
+    
+    // multiple column
+    verify_multiple_col(Nx, Ny, Nz, ncol, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig);    
+    kron_multiple_col_CPU(Nx, Ny, Nz, ncol, Vx, Vy, Vz, eig, reps);
+    kron_multiple_col_GPU(Nx, Ny, Nz, ncol, d_Vx, d_Vy, d_Vz, d_eig, reps);
 
     // Periodic complex
-    printf("================\n");
-    printf("Periodic complex\n");
     Lap_1D_P_EigenDecomp_complex(Nx, FDn, FDweights_D2_x, Vx_kpt, lambda_x, phase_fac_x);
     Lap_1D_P_EigenDecomp_complex(Ny, FDn, FDweights_D2_y, Vy_kpt, lambda_y, phase_fac_y);
     Lap_1D_P_EigenDecomp_complex(Nz, FDn, FDweights_D2_z, Vz_kpt, lambda_z, phase_fac_z);
@@ -145,8 +139,7 @@ int main(int argc, char *argv[]){
     cubSt = cublasSetVector(Nx*Ny*Nz, sizeof(double), eig, 1, d_eig, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 ////////////////////////////////////////////    
 
-    verify_single_col_complex(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);
-    printf("================\n");
+    verify_single_col_complex(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig);    
     kron_single_col_complex_CPU(Nx, Ny, Nz, Vx_kpt, Vy_kpt, Vz_kpt, eig, reps);
     kron_single_col_complex_GPU(Nx, Ny, Nz, d_Vx_kpt, d_Vy_kpt, d_Vz_kpt, d_eig, reps);
 

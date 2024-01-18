@@ -28,7 +28,7 @@ __global__ void scale_vector_complex(cuDoubleComplex* a, double scale, int n)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n) {
-        cufftDoubleComplex t;
+        cuDoubleComplex t;
 		t.x = a[i].x * scale;
 		t.y = a[i].y * scale;
         a[i] = t;
@@ -70,11 +70,11 @@ __global__ void Hammond_RR(double* a, double* b, double* c, int n)
 }
 
 
-__global__ void Hammond_CR(cufftDoubleComplex* a, double* b, cufftDoubleComplex* c, int n) 
+__global__ void Hammond_CR(cuDoubleComplex* a, double* b, cuDoubleComplex* c, int n) 
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < n) {
-		cufftDoubleComplex t;
+		cuDoubleComplex t;
 		t.x = a[i].x * b[i];
 		t.y = a[i].y * b[i];
         c[i] = t;
@@ -129,6 +129,35 @@ void copy_mat_blk(
         for (int icol = 0; icol < ncol; icol++)
             memcpy(dst + icol * ldd, src + icol * lds, col_msize);
     }
+}
+
+
+__device__ void copy_mat_blk_kernel(
+    const size_t unit_size, const void *src_, const int lds, 
+    const int nrow, const int ncol, void *dst_, const int ldd
+)
+{
+    // Determine thread x/y indices
+    const int ix = blockIdx.x*blockDim.x + threadIdx.x;
+    const int iy = blockIdx.y*blockDim.y + threadIdx.y;
+
+    int idx_src = ix + iy * lds;
+    int idx_des = ix + iy * ldd;
+
+    if ((ix >= nrow) || (iy >= ncol)) return;
+
+    if (unit_size == sizeof(double)) {
+        double *src = (double *) src_;
+        double *dst = (double *) dst_;
+        dst[idx_des] = src[idx_src];
+    }
+    if (unit_size == sizeof(cuDoubleComplex)) {
+        cuDoubleComplex *src = (cuDoubleComplex *) src_;
+        cuDoubleComplex *dst = (cuDoubleComplex *) dst_;
+        dst[idx_des] = src[idx_src];
+    }
+
+
 }
 
 

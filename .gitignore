@@ -2,3 +2,6 @@
 result*
 test.sbatch
 test
+test_fft
+test_sc
+test_mc

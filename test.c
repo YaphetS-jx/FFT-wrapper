@@ -43,9 +43,7 @@ void verify_FFT_CPU_GPU(int Nx, int Ny, int Nz)
 
     MKL_LONG dim_sizes[3] = {Nz, Ny, Nx};
     MKL_LONG strides_out[4] = {0, Ny*(Nx/2+1), Nx/2+1, 1}; 
-    int dim_sizes_gpu[3] = {Nz, Ny, Nx};
-    
-    printf("FFT and iFFT GPU implementation verification\n");
+    int dim_sizes_gpu[3] = {Nz, Ny, Nx};    
 
     // forward
     rand_vec(X, Nd);
@@ -92,9 +90,7 @@ void verify_FFT_CPU_GPU_complex(int Nx, int Ny, int Nz)
 
     MKL_LONG dim_sizes[3] = {Nz, Ny, Nx};
     MKL_LONG strides_out[4] = {0, Ny*Nx, Nx, 1}; 
-    int dim_sizes_gpu[3] = {Nz, Ny, Nx};
-    
-    printf("FFT and iFFT complex GPU implementation verification\n");
+    int dim_sizes_gpu[3] = {Nz, Ny, Nx};    
 
     // forward
     rand_vec((double *)X, 2*Nd);
@@ -201,17 +197,31 @@ void FFT_iFFT_GPU(int Nx, int Ny, int Nz, int reps)
     // timing variable 
     struct timeval start, end;
 
+    // cudaEvent_t custart, custop;
+    // cudaEventCreate(&custart); cudaEventCreate(&custop);
+
     // GPU fft
     int dim_sizes_gpu[3] = {Nz, Ny, Nx};
     gettimeofday( &start, NULL );
+
+    // cudaEventRecord(custart,0);
+
     for (int rep = 0; rep < reps; rep++) {
         CUDA_MDFFT_real(d_X, dim_sizes_gpu, d_Xbar);        
         CUDA_MDiFFT_real(d_Xbar, dim_sizes_gpu, d_X);
     }
+
+    // cudaEventRecord(custop,0);
+    // cudaEventSynchronize(custop);
+
+    // float t_gpu_cu = 0;
+    // cudaEventElapsedTime(&t_gpu_cu, custart, custop);
+
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
     printf("FFT_iFFT_GPU %d times takes on average : %.1f ms\n", reps, t_gpu/reps);
+    // printf("FFT_iFFT_GPU %d times takes on average (CUDA count): %.1f ms\n", reps, t_gpu_cu/reps);
     
     free(X);    
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
@@ -273,12 +283,12 @@ void verify_single_col(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *V
     cuE = cudaMalloc((void **) &d_LapX, sizeof(double) * Nd); assert(cudaSuccess == cuE);
     cubSt = cublasSetVector(Nd, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);    
     
-    Lap_Kron(Nx, Ny, Nz, Vx, Vy, Vz, X, diag, LapX);
+    Lap_Kron(Nx, Ny, Nz, Vx, Vy, Vz, X, diag, LapX);    
 
     CUDA_Lap_Kron(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_X, d_diag, d_LapX);
 
     cubSt = cublasGetVector(Nd, sizeof(double), d_LapX, 1, LapX_gpu, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
-    
+        
     printf("err between CPU and GPU for single column way: %.2e\n", err(LapX,LapX_gpu,Nd));    
 
     free(X);
@@ -377,7 +387,7 @@ void verify_single_col_complex(int Nx, int Ny, int Nz,
 
     cubSt = cublasGetVector(Nd, sizeof(cuDoubleComplex), d_LapX, 1, LapX_gpu, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
     
-    printf("err between CPU and GPU for single column way: %.2e\n", err((double *)LapX, (double *)LapX_gpu, 2*Nd));    
+    printf("err between CPU and GPU for single column way complex: %.2e\n", err((double *)LapX, (double *)LapX_gpu, 2*Nd));    
 
     free(X);
     free(LapX);
@@ -461,4 +471,98 @@ void kron_single_col_complex_GPU(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, 
     cuE = cudaFree(d_LapX); assert(cudaSuccess == cuE);
     cuE = cudaFree(d_VyH); assert(cudaSuccess == cuE);
     cuE = cudaFree(d_VzH); assert(cudaSuccess == cuE);
+}
+
+
+
+////////////////////////////////////////////////////////
+////////         Kron multiple col tests        ////////
+////////////////////////////////////////////////////////
+
+
+void verify_multiple_col(int Nx, int Ny, int Nz, int ncol, double *Vx, double *Vy, double *Vz, double *diag,
+                    double *d_Vx, double *d_Vy, double *d_Vz, double *d_diag)
+{
+    int Nd = Nx * Ny * Nz;
+    double *X = (double *) malloc(sizeof(double) * Nd*ncol);
+    double *LapX = (double *) malloc(sizeof(double) * Nd*ncol);
+    double *LapX_gpu = (double *) malloc(sizeof(double) * Nd*ncol);
+    rand_vec(X, Nd*ncol);
+
+    // gpu variables
+    cudaError_t cuE; cublasStatus_t cubSt;
+    double *d_X, *d_LapX;
+    cuE = cudaMalloc((void **) &d_X, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
+    cuE = cudaMalloc((void **) &d_LapX, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
+    cubSt = cublasSetVector(Nd*ncol, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);    
+    
+    Lap_Kron_multicol(Nx, Ny, Nz, Vx, Vy, Vz, X, ncol, diag, LapX);
+    
+    CUDA_Lap_Kron_multicol(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_X, ncol, d_diag, d_LapX);
+
+    cubSt = cublasGetVector(Nd*ncol, sizeof(double), d_LapX, 1, LapX_gpu, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    printf("err between CPU and GPU for multiple column way: %.2e\n", err(LapX,LapX_gpu,Nd*ncol));    
+
+    free(X);
+    free(LapX);
+    free(LapX_gpu);
+    cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
+    cuE = cudaFree(d_LapX); assert(cudaSuccess == cuE);
+}
+
+
+void kron_multiple_col_CPU(int Nx, int Ny, int Nz, int ncol, double *Vx, double *Vy, double *Vz, double *diag, int reps)
+{
+    int Nd = Nx * Ny * Nz;
+    double *X = (double *) malloc(sizeof(double) * Nd*ncol);
+    double *LapX = (double *) malloc(sizeof(double) * Nd*ncol);
+    rand_vec(X, Nd*ncol);
+
+    // timing variable 
+    struct timeval start, end;
+    
+    gettimeofday( &start, NULL );
+    for (int rep = 0; rep < reps; rep++) {
+        Lap_Kron_multicol(Nx, Ny, Nz, Vx, Vy, Vz, X, ncol, diag, LapX);
+    }
+    gettimeofday( &end, NULL );
+    double t_cpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+    printf("Kron_multiple_col_CPU %d times takes on average : %.2f ms\n", reps, t_cpu/reps);
+
+    free(X);
+    free(LapX);    
+}
+
+
+void kron_multiple_col_GPU(int Nx, int Ny, int Nz, int ncol, double *d_Vx, double *d_Vy, double *d_Vz, double *d_diag, int reps)
+{
+    int Nd = Nx * Ny * Nz;
+    double *X = (double *) malloc(sizeof(double) * Nd*ncol);
+    rand_vec(X, Nd*ncol);
+
+    // gpu variables
+    cudaError_t cuE; cublasStatus_t cubSt;
+    double *d_X, *d_LapX;
+    cuE = cudaMalloc((void **) &d_X, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
+    cuE = cudaMalloc((void **) &d_LapX, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
+    cubSt = cublasSetVector(Nd*ncol, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    // timing variable 
+    struct timeval start, end;
+    
+    gettimeofday( &start, NULL );
+    for (int rep = 0; rep < reps; rep++) {
+        CUDA_Lap_Kron_multicol(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_X, ncol, d_diag, d_LapX);
+    }
+    cudaDeviceSynchronize();
+    gettimeofday( &end, NULL );
+    double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
+
+    printf("Kron_multiple_col_GPU %d times takes on average : %.2f ms\n", reps, t_gpu/reps);
+
+    free(X);
+    cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
+    cuE = cudaFree(d_LapX); assert(cudaSuccess == cuE);
 }

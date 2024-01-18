@@ -34,4 +34,11 @@ void kron_single_col_complex_CPU(int Nx, int Ny, int Nz, double _Complex *Vx, do
 void kron_single_col_complex_GPU(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, cuDoubleComplex *d_Vy, cuDoubleComplex *d_Vz, double *d_diag, int reps);
 
 
+
+void verify_multiple_col(int Nx, int Ny, int Nz, int ncol, double *Vx, double *Vy, double *Vz, double *diag,
+                    double *d_Vx, double *d_Vy, double *d_Vz, double *d_diag);
+
+void kron_multiple_col_CPU(int Nx, int Ny, int Nz, int ncol, double *Vx, double *Vy, double *Vz, double *diag, int reps);
+
+void kron_multiple_col_GPU(int Nx, int Ny, int Nz, int ncol, double *d_Vx, double *d_Vy, double *d_Vz, double *d_diag, int reps);
 #endif

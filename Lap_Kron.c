@@ -226,7 +226,6 @@ gettimeofday( &start, NULL );
 gettimeofday( &end, NULL );
 t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-
 gettimeofday( &start, NULL );
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, Nx*Nz*ncol, Ny, Ny, 
                 1.0, FormVxTvec, Nx*Nz*ncol, Vy, Ny, 0.0, VxTvecVy, Nx*Nz*ncol);
@@ -238,7 +237,6 @@ gettimeofday( &start, NULL );
     f2Tof4(Nx, Ny, Nz, ncol, VxTvecVy, FormVxTvecVy, sizeof(double));
 gettimeofday( &end, NULL );
 t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
-
 
 gettimeofday( &start, NULL );
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, NxNy*ncol, Nz, Nz, 
@@ -258,7 +256,6 @@ gettimeofday( &start, NULL );
     }
 gettimeofday( &end, NULL );
 t_c += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
-
 
 gettimeofday( &start, NULL );
     // out = (Vz x Vy x Vx) * P
@@ -308,7 +305,7 @@ t_m += (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.t
 
     free(temp);
 
-printf("in multicol, data movement takes %.3f ms, blas3 takes %.3f ms, t_m/t_c = %.3f %%\n", t_m, t_c, t_m/t_c*100);
+// printf("in multicol, data movement takes %.3f ms, blas3 takes %.3f ms, t_m/t_c = %.3f %%\n", t_m, t_c, t_m/t_c*100);
 }
 
 void f1Tof2(const int Nx, const int Ny, const int Nz, int ncol, 

@@ -28,6 +28,13 @@ __global__ void Hammond_CR(cufftDoubleComplex* a, double* b, cufftDoubleComplex*
 
 __global__ void conjugate_vector_kernel(cufftDoubleComplex* a, int n);
 
+
+__device__ void copy_mat_blk_kernel(
+    const size_t unit_size, const void *src_, const int lds, 
+    const int nrow, const int ncol, void *dst_, const int ldd
+);
+
+
 void conjugate_vector(cuDoubleComplex* a, int n);
 
 /** @ brief   Copy column-major matrix block
