@@ -18,6 +18,11 @@ void FFT_iFFT_GPU(int Nx, int Ny, int Nz, int reps);
 void FFT_iFFT_complex_GPU(int Nx, int Ny, int Nz, int reps);
 
 
+void verify_FFT_batch_CPU_GPU(int Nx, int Ny, int Nz, int ncol);
+
+
+
+
 void verify_single_col(int Nx, int Ny, int Nz, double *Vx, double *Vy, double *Vz, double *diag,
                     double *d_Vx, double *d_Vy, double *d_Vz, double *d_diag);
 

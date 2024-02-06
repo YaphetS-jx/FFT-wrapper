@@ -19,6 +19,9 @@ void CUDA_MDFFT(cufftDoubleComplex *d_c2c_3dinput, int *dim_sizes, cufftDoubleCo
 
 void CUDA_MDiFFT(cufftDoubleComplex *d_c2c_3dinput, int *dim_sizes, cufftDoubleComplex *d_c2c_3doutput);
 
+void CUDA_MDFFT_batch_real(cufftDoubleReal *d_r2c_3dinput, int *dim_sizes, int ncol, cufftDoubleComplex *d_r2c_3doutput);
+
+void CUDA_MDiFFT_batch_real(cufftDoubleComplex *d_c2r_3dinput, int *dim_sizes, int ncol, cufftDoubleReal *d_c2r_3doutput);
 
 #ifdef __cplusplus
 }

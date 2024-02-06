@@ -53,6 +53,8 @@ int main(int argc, char *argv[]){
     FFT_iFFT_complex_CPU(Nx, Ny, Nz, reps);
     FFT_iFFT_complex_GPU(Nx, Ny, Nz, reps);
 
+    // batch
+    // verify_FFT_batch_CPU_GPU(Nx, Ny, Nz, ncol);    
         
     /******************************************************/
     /*********          Lap_1D decomposition        *******/
@@ -121,7 +123,6 @@ int main(int argc, char *argv[]){
     kron_single_col_CPU(Nx, Ny, Nz, Vx, Vy, Vz, eig, reps);    
     kron_single_col_GPU(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_eig, reps);
     
-    // multiple column
     verify_multiple_col(Nx, Ny, Nz, ncol, Vx, Vy, Vz, eig, d_Vx, d_Vy, d_Vz, d_eig);    
     kron_multiple_col_CPU(Nx, Ny, Nz, ncol, Vx, Vy, Vz, eig, reps);
     kron_multiple_col_GPU(Nx, Ny, Nz, ncol, d_Vx, d_Vy, d_Vz, d_eig, reps);

@@ -103,6 +103,50 @@ void CUDA_MDiFFT(cufftDoubleComplex *d_c2c_3dinput, int *dim_sizes, cufftDoubleC
     scale_vector_complex<<<numBlocks,numThreadsPerBlock>>>(d_c2c_3doutput, scale, N);
 }
 
+// batched FFT
+/**
+ * @brief   CUDA multi-dimension batch FFT interface, real to complex, following conjugate even distribution. 
+ */
+void CUDA_MDFFT_batch_real(cufftDoubleReal *d_r2c_3dinput, int *dim_sizes, int ncol, cufftDoubleComplex *d_r2c_3doutput)
+{
+    int N = dim_sizes[2]*dim_sizes[1]*dim_sizes[0];
+
+    cufftHandle plan_r2c;
+    cufftCreate(&plan_r2c);
+    cufftPlanMany(&plan_r2c, 3, dim_sizes, NULL, 1, N, NULL, 1, N, CUFFT_D2Z, ncol);
+    // cufftPlanMany(&plan_r2c, 3, dim_sizes, NULL, 1, 0, NULL, 1, 0, CUFFT_D2Z, ncol);
+    cufftExecD2Z(plan_r2c, d_r2c_3dinput, d_r2c_3doutput);
+    cufftDestroy(plan_r2c);
+}
+
+
+/**
+ * @brief   CUDA multi-dimension batch FFT interface, complex to real, following conjugate even distribution. 
+ *          Warning: d_c2r_3dinput will be changed!
+ */
+void CUDA_MDiFFT_batch_real(cufftDoubleComplex *d_c2r_3dinput, int *dim_sizes, int ncol, cufftDoubleReal *d_c2r_3doutput)
+{
+    int N = dim_sizes[2]*dim_sizes[1]*dim_sizes[0];
+
+    cufftResult_t res_t;
+
+    cufftHandle plan_c2r;
+    cufftCreate(&plan_c2r);
+    // cufftPlanMany(&plan_c2r, 3, dim_sizes, NULL, 1, N, NULL, 1, N, CUFFT_Z2D, ncol);
+    res_t = cufftPlanMany(&plan_c2r, 3, dim_sizes, NULL, 1, N, NULL, 1, N, CUFFT_Z2D, ncol);
+    assert(res_t == CUFFT_SUCCESS);
+
+    res_t = cufftExecZ2D(plan_c2r, d_c2r_3dinput, d_c2r_3doutput);
+    assert(res_t == CUFFT_SUCCESS);
+    
+    cufftDestroy(plan_c2r);
+
+    int numThreadsPerBlock = 256;
+    int numBlocks = (N + numThreadsPerBlock - 1) / numThreadsPerBlock;
+    double scale = 1.0/N;
+    scale_vector<<<numBlocks,numThreadsPerBlock>>>(d_c2r_3doutput, scale, N*ncol);
+}
+
 
 #ifdef __cplusplus
 }

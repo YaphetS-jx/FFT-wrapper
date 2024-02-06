@@ -192,36 +192,36 @@ void FFT_iFFT_GPU(int Nx, int Ny, int Nz, int reps)
     cufftDoubleReal *d_X; cuDoubleComplex *d_Xbar;
     cuE = cudaMalloc((void **) &d_X, sizeof(cufftDoubleReal) * Nd); assert(cudaSuccess == cuE);
     cuE = cudaMalloc((void **) &d_Xbar, sizeof(cuDoubleComplex) * Nd_half); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd, sizeof(cufftDoubleReal), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     // timing variable 
     struct timeval start, end;
-
-    // cudaEvent_t custart, custop;
-    // cudaEventCreate(&custart); cudaEventCreate(&custop);
+    struct timeval start_c, end_c;
+    double time_c = 0;
 
     // GPU fft
     int dim_sizes_gpu[3] = {Nz, Ny, Nx};
     gettimeofday( &start, NULL );
 
-    // cudaEventRecord(custart,0);
-
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd, sizeof(cufftDoubleReal), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_MDFFT_real(d_X, dim_sizes_gpu, d_Xbar);        
         CUDA_MDiFFT_real(d_Xbar, dim_sizes_gpu, d_X);
+    
+    gettimeofday( &start_c, NULL );
+        cublasGetVector(Nd, sizeof(cufftDoubleReal), d_X, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
     }
-
-    // cudaEventRecord(custop,0);
-    // cudaEventSynchronize(custop);
-
-    // float t_gpu_cu = 0;
-    // cudaEventElapsedTime(&t_gpu_cu, custart, custop);
 
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("FFT_iFFT_GPU %d times takes on average : %.1f ms\n", reps, t_gpu/reps);
-    // printf("FFT_iFFT_GPU %d times takes on average (CUDA count): %.1f ms\n", reps, t_gpu_cu/reps);
+    printf("FFT_iFFT_GPU %d times takes on average : %.1f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
     
     free(X);    
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
@@ -240,24 +240,98 @@ void FFT_iFFT_complex_GPU(int Nx, int Ny, int Nz, int reps)
     cuDoubleComplex *d_X, *d_Xbar;
     cuE = cudaMalloc((void **) &d_X, sizeof(cuDoubleComplex) * Nd); assert(cudaSuccess == cuE);
     cuE = cudaMalloc((void **) &d_Xbar, sizeof(cuDoubleComplex) * Nd); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     // timing variable 
     struct timeval start, end;
+    struct timeval start_c, end_c;
+    double time_c = 0;
 
     // GPU fft
     int dim_sizes_gpu[3] = {Nz, Ny, Nx};
     gettimeofday( &start, NULL );
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_MDFFT(d_X, dim_sizes_gpu, d_Xbar);        
         CUDA_MDiFFT(d_Xbar, dim_sizes_gpu, d_X);
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasGetVector(Nd, sizeof(cuDoubleComplex), d_X, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
     }
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("FFT_iFFT_complex_GPU %d times takes on average : %.1f ms\n", reps, t_gpu/reps);
+    printf("FFT_iFFT_complex_GPU %d times takes on average : %.1f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
     
     free(X);    
+    cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
+    cuE = cudaFree(d_Xbar); assert(cudaSuccess == cuE);
+}
+
+
+////////////////////////////////////////////////////////
+/////////                batched fft         ///////////
+////////////////////////////////////////////////////////
+
+void verify_FFT_batch_CPU_GPU(int Nx, int Ny, int Nz, int ncol)
+{
+    int Nd = Nx * Ny * Nz;
+    int Nd_half = (Nx/2+1)*Ny*Nz;
+    double *X = (double *) malloc(sizeof(double) * Nd*ncol);
+    double *X_GPU = (double *) malloc(sizeof(double) * Nd*ncol);
+    double _Complex *Xbar = (double _Complex *) malloc(sizeof(double _Complex) * Nd_half*ncol);
+    double _Complex *Xbar_gpu = (double _Complex *) malloc(sizeof(double _Complex) * Nd_half*ncol);
+    
+    // gpu variables
+    cudaError_t cuE; cublasStatus_t cubSt;
+    cufftDoubleReal *d_X; cuDoubleComplex *d_Xbar;
+    cuE = cudaMalloc((void **) &d_X, sizeof(cufftDoubleReal) * Nd*ncol); assert(cudaSuccess == cuE);
+    cuE = cudaMalloc((void **) &d_Xbar, sizeof(cuDoubleComplex) * Nd_half*ncol); assert(cudaSuccess == cuE);
+
+    MKL_LONG dim_sizes[3] = {Nz, Ny, Nx};
+    MKL_LONG strides_out[4] = {0, Ny*(Nx/2+1), Nx/2+1, 1}; 
+    int dim_sizes_gpu[3] = {Nz, Ny, Nx};    
+
+    // forward
+    rand_vec(X, Nd*ncol);
+    cubSt = cublasSetVector(Nd*ncol, sizeof(cufftDoubleReal), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    for (int i = 0; i < ncol; i++) {
+        MKL_MDFFT_real(X+i*Nd, dim_sizes, strides_out, Xbar+i*Nd_half);
+    }
+    
+    CUDA_MDFFT_batch_real(d_X, dim_sizes_gpu, ncol, d_Xbar);    
+
+    cubSt = cublasGetVector(Nd_half*ncol, sizeof(cuDoubleComplex), d_Xbar, 1, Xbar_gpu, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    printf("err between CPU and GPU batch FFT: %.2e\n", err((double *)Xbar, (double *)Xbar_gpu, 2*Nd_half*ncol));
+
+    // backward
+    for (int i = 0; i < ncol; i++) {
+        MKL_MDiFFT_real(Xbar+i*Nd_half, dim_sizes, strides_out, X+i*Nd);
+    }
+
+    CUDA_MDiFFT_batch_real(d_Xbar, dim_sizes_gpu, ncol, d_X);
+
+    cubSt = cublasGetVector(Nd*ncol, sizeof(cufftDoubleReal), d_X, 1, X_GPU, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+
+    printf("err between CPU and GPU batch iFFT: %.2e\n", err(X, X_GPU, Nd*ncol));    
+
+    for (int i = 0; i < Nd*ncol; i++) {
+        // if (fabs(X[i]-X_GPU[i]) > 1E-6)
+            // printf("i %d, %.16f, %.16f\n", i, X[i], X_GPU[i]);
+    }
+    
+    free(X);
+    free(X_GPU);
+    free(Xbar);
+    free(Xbar_gpu);
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
     cuE = cudaFree(d_Xbar); assert(cudaSuccess == cuE);
 }
@@ -334,20 +408,33 @@ void kron_single_col_GPU(int Nx, int Ny, int Nz, double *d_Vx, double *d_Vy, dou
     double *d_X, *d_LapX;
     cuE = cudaMalloc((void **) &d_X, sizeof(double) * Nd); assert(cudaSuccess == cuE);
     cuE = cudaMalloc((void **) &d_LapX, sizeof(double) * Nd); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     // timing variable 
     struct timeval start, end;
-    
+    struct timeval start_c, end_c;
+    double time_c = 0;
+
     gettimeofday( &start, NULL );
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_Lap_Kron(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_X, d_diag, d_LapX);
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasGetVector(Nd, sizeof(double), d_LapX, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
     }
     cudaDeviceSynchronize();
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("Kron_single_col_GPU %d times takes on average : %.2f ms\n", reps, t_gpu/reps);
+    printf("Kron_single_col_GPU %d times takes on average : %.2f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
 
     free(X);
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
@@ -449,22 +536,34 @@ void kron_single_col_complex_GPU(int Nx, int Ny, int Nz, cuDoubleComplex *d_Vx, 
     cuE = cudaMalloc((void **) &d_VzH, sizeof(cuDoubleComplex) * Nz*Nz); assert(cudaSuccess == cuE);
     cuE = cudaMemcpy(d_VyH, d_Vy, sizeof(cuDoubleComplex) * Ny*Ny, cudaMemcpyDeviceToDevice); assert(cudaSuccess == cuE);
     cuE = cudaMemcpy(d_VzH, d_Vz, sizeof(cuDoubleComplex) * Nz*Nz, cudaMemcpyDeviceToDevice); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
     
     conjugate_vector(d_VyH, Ny*Ny);
     conjugate_vector(d_VzH, Nz*Nz);
 
     // timing variable 
     struct timeval start, end;
-    
+    struct timeval start_c, end_c;
+    double time_c = 0;
+
     gettimeofday( &start, NULL );
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_Lap_Kron_complex(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_VyH, d_VzH, d_X, d_diag, d_LapX);
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasGetVector(Nd, sizeof(cuDoubleComplex), d_LapX, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
     }
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("Kron_single_col_complex_GPU %d times takes on average : %.2f ms\n", reps, t_gpu/reps);
+    printf("Kron_single_col_complex_GPU %d times takes on average : %.2f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
 
     free(X);
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
@@ -594,20 +693,33 @@ void kron_multiple_col_GPU(int Nx, int Ny, int Nz, int ncol, double *d_Vx, doubl
     double *d_X, *d_LapX;
     cuE = cudaMalloc((void **) &d_X, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
     cuE = cudaMalloc((void **) &d_LapX, sizeof(double) * Nd*ncol); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd*ncol, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
 
     // timing variable 
     struct timeval start, end;
-    
+    struct timeval start_c, end_c;
+    double time_c = 0;
+
     gettimeofday( &start, NULL );
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd*ncol, sizeof(double), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_Lap_Kron_multicol(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_X, ncol, d_diag, d_LapX);
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasGetVector(Nd*ncol, sizeof(double), d_LapX, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
     }
     cudaDeviceSynchronize();
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("Kron_multiple_col_GPU %d times takes on average : %.2f ms\n", reps, t_gpu/reps);
+    printf("Kron_multiple_col_GPU %d times takes on average : %.2f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
 
     free(X);
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
@@ -663,22 +775,34 @@ void kron_multiple_col_complex_GPU(int Nx, int Ny, int Nz, int ncol,
     cuE = cudaMalloc((void **) &d_VzH, sizeof(cuDoubleComplex) * Nz*Nz); assert(cudaSuccess == cuE);
     cuE = cudaMemcpy(d_VyH, d_Vy, sizeof(cuDoubleComplex) * Ny*Ny, cudaMemcpyDeviceToDevice); assert(cudaSuccess == cuE);
     cuE = cudaMemcpy(d_VzH, d_Vz, sizeof(cuDoubleComplex) * Nz*Nz, cudaMemcpyDeviceToDevice); assert(cudaSuccess == cuE);
-    cubSt = cublasSetVector(Nd*ncol, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
     
     conjugate_vector(d_VyH, Ny*Ny);
     conjugate_vector(d_VzH, Nz*Nz);
 
     // timing variable 
     struct timeval start, end;
-    
+    struct timeval start_c, end_c;
+    double time_c = 0;
+
     gettimeofday( &start, NULL );
     for (int rep = 0; rep < reps; rep++) {
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasSetVector(Nd*ncol, sizeof(cuDoubleComplex), X, 1, d_X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
+
         CUDA_Lap_Kron_multicol_complex(Nx, Ny, Nz, d_Vx, d_Vy, d_Vz, d_VyH, d_VzH, d_X, ncol, d_diag, d_LapX);
+    
+    gettimeofday( &start_c, NULL );
+        cubSt = cublasGetVector(Nd*ncol, sizeof(cuDoubleComplex), d_LapX, 1, X, 1); assert(CUBLAS_STATUS_SUCCESS == cubSt);
+    gettimeofday( &end_c, NULL );
+    time_c += (double)(end_c.tv_usec - start_c.tv_usec)/1E3 + (double)(end_c.tv_sec - start_c.tv_sec)*1E3;
     }
     gettimeofday( &end, NULL );
     double t_gpu = (double)(end.tv_usec - start.tv_usec)/1E3 + (double)(end.tv_sec - start.tv_sec)*1E3;
 
-    printf("kron_multiple_col_complex_GPU %d times takes on average : %.2f ms\n", reps, t_gpu/reps);
+    printf("kron_multiple_col_complex_GPU %d times takes on average : %.2f ms, communication takes %.1f ms\n", reps, t_gpu/reps, time_c/reps);
 
     free(X);
     cuE = cudaFree(d_X); assert(cudaSuccess == cuE);
